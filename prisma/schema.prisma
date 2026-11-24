@@ -1,0 +1,613 @@
+// RideIQ Prisma Schema
+// Run: npx prisma generate && npx prisma migrate dev
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// CORE OPERATIONAL ENTITIES
+// =====================================================================
+
+model Driver {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  name             String
+  email            String?  @unique
+  phone            String?
+  licenseNumber    String?
+  status           String   @default("offline")
+  rating           Float?
+  totalTrips       Int      @default(0)
+  completedTrips   Int      @default(0)
+  cancelledTrips   Int      @default(0)
+  avgEarnings      Float?
+  zoneId           String?
+  zone             Zone?    @relation(fields: [zoneId], references: [id])
+  isEligible       Boolean  @default(true)
+  isSynthetic      Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  trips            Trip[]
+  metrics          DriverMetrics[]
+  feedback         DriverFeedback[]
+  opportunityLedger OpportunityLedgerEntry[]
+  reliabilityAssessments ReliabilityAssessment[]
+  churnAssessments ChurnAssessment[]
+  predictions      ModelPrediction[]
+  decisionTraces   DecisionTrace[]
+  safetyIncidents  SafetyIncident[]
+  interventions    InterventionProposal[]
+
+  @@index([status])
+  @@index([zoneId])
+  @@index([isEligible])
+}
+
+model Rider {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  name             String
+  email            String?  @unique
+  phone            String?
+  rating           Float?
+  totalTrips       Int      @default(0)
+  isSynthetic      Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  trips            Trip[]
+  safetyIncidents  SafetyIncident[]
+
+  @@index([externalId])
+}
+
+model Trip {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  riderId          String
+  driverId         String?
+  assignedDriverId String?
+  status           String   @default("pending")
+  pickupLat        Float
+  pickupLng        Float
+  dropoffLat       Float?
+  dropoffLng       Float?
+  distanceKm       Float?
+  estimatedDurationMin Int?
+  actualDurationMin  Int?
+  fare             Float?
+  earnings         Float?
+  pickupDistanceKm Float?
+  estimatedPickupMin Int?
+  actualPickupMin    Int?
+  requestedAt      DateTime @default(now())
+  acceptedAt       DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  cancelledBy      String?
+  cancellationReason String?
+  zoneId           String?
+  isSynthetic      Boolean  @default(false)
+  dataSource       String   @default("operational")
+
+  rider            Rider    @relation(fields: [riderId], references: [id])
+  driver           Driver?  @relation(fields: [driverId], references: [id])
+  zone             Zone?    @relation(fields: [zoneId], references: [id])
+  events           TripEvent[]
+  routeObservations RouteObservation[]
+  safetyIncidents  SafetyIncident[]
+  matchingScore    MatchingScore?
+  feedback         DriverFeedback[]
+  reliabilityAssessments ReliabilityAssessment[]
+
+  @@index([riderId])
+  @@index([driverId])
+  @@index([status])
+  @@index([requestedAt])
+  @@index([zoneId])
+  @@index([isSynthetic])
+}
+
+model TripEvent {
+  id               String   @id @default(cuid())
+  tripId           String
+  eventType        String
+  occurredAt       DateTime @default(now())
+  source           String
+  data             Json     @default("{}")
+  isSynthetic      Boolean  @default(false)
+
+  trip             Trip     @relation(fields: [tripId], references: [id])
+
+  @@index([tripId])
+  @@index([eventType])
+  @@index([occurredAt])
+}
+
+model DriverMetrics {
+  id               String   @id @default(cuid())
+  driverId         String   @unique
+  shortPickupTrips Int      @default(0)
+  shortPickupCompleted Int  @default(0)
+  longPickupTrips  Int      @default(0)
+  longPickupCompleted Int  @default(0)
+  shortTripTrips   Int      @default(0)
+  shortTripCompleted Int   @default(0)
+  longTripTrips    Int      @default(0)
+  longTripCompleted Int    @default(0)
+  peakTrips        Int      @default(0)
+  peakCompleted    Int      @default(0)
+  offPeakTrips     Int      @default(0)
+  offPeakCompleted Int      @default(0)
+  acceptanceCount  Int      @default(0)
+  completionCount  Int      @default(0)
+  cancellationCount Int     @default(0)
+  sampleSize       Int      @default(0)
+  observationWindowDays Int @default(30)
+  lastCalculatedAt DateTime @default(now())
+  isSynthetic      Boolean  @default(false)
+
+  driver           Driver   @relation(fields: [driverId], references: [id])
+
+  @@index([driverId])
+}
+
+model DriverFeedback {
+  id               String   @id @default(cuid())
+  driverId         String
+  tripId           String?
+  category         String
+  summary          String
+  rating           Int?
+  createdAt        DateTime @default(now())
+  isAuthorized     Boolean  @default(true)
+  isSynthetic      Boolean  @default(false)
+
+  driver           Driver   @relation(fields: [driverId], references: [id])
+  trip             Trip?    @relation(fields: [tripId], references: [id])
+
+  @@index([driverId])
+  @@index([createdAt])
+}
+
+// =====================================================================
+// SAFETY ENTITIES
+// =====================================================================
+
+model SafetyIncident {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  tripId           String
+  driverId         String
+  riderId          String?
+  status           String   @default("open")
+  severity         String   @default("low")
+  category         String
+  description      String?
+  reportedAt       DateTime @default(now())
+  resolvedAt       DateTime?
+  authorizedBy     String?
+  isSynthetic      Boolean  @default(false)
+
+  trip             Trip     @relation(fields: [tripId], references: [id])
+  driver           Driver   @relation(fields: [driverId], references: [id])
+  rider            Rider?   @relation(fields: [riderId], references: [id])
+  routeObservations RouteObservation[]
+
+  @@index([tripId])
+  @@index([driverId])
+  @@index([status])
+  @@index([severity])
+  @@index([reportedAt])
+}
+
+model RouteObservation {
+  id               String   @id @default(cuid())
+  tripId           String
+  incidentId       String?
+  observedAt       DateTime @default(now())
+  expectedRoute    Json     @default("{}")
+  observedRoute    Json     @default("{}")
+  deviationDistanceMeters Float?
+  deviationDurationSec Int?
+  trafficContext   Json     @default("{}")
+  gpsAccuracyMeters  Float?
+  telemetryQuality String   @default("unknown")
+  riderCheckIn     Boolean?
+  roadClosure      Boolean  @default(false)
+  isSynthetic      Boolean  @default(false)
+
+  trip             Trip     @relation(fields: [tripId], references: [id])
+  incident         SafetyIncident? @relation(fields: [incidentId], references: [id])
+
+  @@index([tripId])
+  @@index([observedAt])
+}
+
+// =====================================================================
+// MATCHING ENTITIES
+// =====================================================================
+
+model MatchingConfiguration {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  version          Int      @default(1)
+  name             String
+  isActive         Boolean  @default(false)
+  weights          Json     @default("{}")
+  hardConstraints  Json     @default("{}")
+  fairnessConfig   Json     @default("{}")
+  createdBy        String
+  approvedBy       String?
+  approvedAt       DateTime?
+  status           String   @default("draft")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  matchingScores   MatchingScore[]
+
+  @@index([isActive])
+  @@index([version])
+  @@index([status])
+}
+
+model Zone {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  name             String
+  centerLat        Float
+  centerLng        Float
+  radiusKm         Float
+  isActive         Boolean  @default(true)
+  isSynthetic      Boolean  @default(false)
+
+  trips            Trip[]
+  drivers          Driver[]
+  zoneMetrics      ZoneMetrics[]
+  opportunityLedger OpportunityLedgerEntry[]
+
+  @@index([externalId])
+  @@index([isActive])
+}
+
+model ZoneMetrics {
+  id               String   @id @default(cuid())
+  zoneId           String   @unique
+  supplyDemandRatio Float?
+  availableDriverCount Int  @default(0)
+  averageWaitMin   Float?
+  opportunityDistribution Json @default("{}")
+  earningsDistribution Json @default("{}")
+  dataFreshness    DateTime @default(now())
+  lastCalculatedAt DateTime @default(now())
+
+  zone             Zone     @relation(fields: [zoneId], references: [id])
+
+  @@index([zoneId])
+}
+
+model MatchingScore {
+  id               String   @id @default(cuid())
+  tripId           String   @unique
+  driverId         String
+  riderId          String
+  overallScore     Float
+  proximityComponent Float
+  familiarityComponent Float
+  reliabilityComponent Float
+  fairnessComponent Float
+  hardConstraintPass Boolean @default(true)
+  scoreBreakdown   Json     @default("{}")
+  configId         String
+  calculatedAt     DateTime @default(now())
+  isSynthetic      Boolean  @default(false)
+
+  config           MatchingConfiguration @relation(fields: [configId], references: [id])
+  trip             Trip     @relation(fields: [tripId], references: [id])
+
+  @@index([tripId])
+  @@index([driverId])
+  @@index([calculatedAt])
+}
+
+// =====================================================================
+// OPPORTUNITY LEDGER (FAIRNESS)
+// =====================================================================
+
+model OpportunityLedgerEntry {
+  id               String   @id @default(cuid())
+  driverId         String
+  zoneId           String?
+  windowStart      DateTime
+  windowEnd        DateTime
+  eligibleOnlineHoursMin Float
+  eligibleTripOffers Int      @default(0)
+  assignmentsReceived Int     @default(0)
+  assignmentCompletionRatio Float?
+  offersPerEligibleHour Float?
+  avgPickupDistanceKm Float?
+  avgPickupTimeMin   Float?
+  estimatedEarningsOpportunity Float?
+  actualEarnings     Float?
+  opportunityExclusion Boolean @default(false)
+  isSynthetic        Boolean  @default(false)
+
+  driver           Driver   @relation(fields: [driverId], references: [id])
+  zone             Zone?    @relation(fields: [zoneId], references: [id])
+
+  @@index([driverId])
+  @@index([zoneId])
+  @@index([windowStart])
+  @@index([windowEnd])
+  @@index([opportunityExclusion])
+}
+
+// =====================================================================
+// RETENTION ENTITIES
+// =====================================================================
+
+model ChurnAssessment {
+  id               String   @id @default(cuid())
+  driverId         String   @unique
+  segmentId        String?
+  churnProbability Float?
+  confidence       Float?
+  evidenceQuality  String
+  observationWindowDays Int @default(30)
+  trend            String   @default("stable")
+  recommendedPriority String @default("medium")
+  behavioralIndicators Json @default("{}")
+  calculatedAt     DateTime @default(now())
+  isSynthetic      Boolean  @default(false)
+
+  driver           Driver   @relation(fields: [driverId], references: [id])
+
+  @@index([driverId])
+  @@index([segmentId])
+  @@index([recommendedPriority])
+}
+
+model InterventionProposal {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  driverId         String
+  type             String
+  estimatedCost    Float?
+  status           String   @default("proposed")
+  proposedBy       String
+  approvedBy       String?
+  approvedAt       DateTime?
+  budgetValidated  Boolean  @default(false)
+  idempotencyKey   String   @unique
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime?
+
+  driver           Driver   @relation(fields: [driverId], references: [id])
+
+  @@index([driverId])
+  @@index([status])
+  @@index([idempotencyKey])
+}
+
+// =====================================================================
+// INTELLIGENCE & GOVERNANCE ENTITIES
+// =====================================================================
+
+model ReliabilityAssessment {
+  id               String   @id @default(cuid())
+  driverId         String
+  tripId           String?
+  cancellationProbability Float
+  riskCategory     String
+  confidence       Float?
+  evidenceQuality  String
+  primaryRiskFactors Json   @default("[]")
+  explanation      String?
+  modelVersion     String
+  dataFreshness    DateTime
+  calculatedAt     DateTime @default(now())
+  isSynthetic      Boolean  @default(false)
+
+  driver           Driver   @relation(fields: [driverId], references: [id])
+  trip             Trip?    @relation(fields: [tripId], references: [id])
+
+  @@index([driverId])
+  @@index([calculatedAt])
+}
+
+model ModelPrediction {
+  id               String   @id @default(cuid())
+  driverId         String?
+  driver           Driver?  @relation(fields: [driverId], references: [id])
+  modelId          String
+  modelVersion     String
+  predictionType   String
+  predictionValue  Json     @default("{}")
+  confidence       Float?
+  evidenceQuality  String
+  createdAt        DateTime @default(now())
+  isSynthetic      Boolean  @default(false)
+
+  @@index([modelId])
+  @@index([driverId])
+  @@index([createdAt])
+}
+
+model ModelRegistryEntry {
+  id               String   @id @default(cuid())
+  modelId          String   @unique
+  version          String
+  purpose          String
+  trainingDataProvenance String
+  limitations      String?
+  evaluationResults Json     @default("{}")
+  failureConditions Json     @default("[]")
+  deploymentStatus String   @default("shadow")
+  approvalHistory  Json     @default("[]")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model DecisionTrace {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  decisionId       String   @unique
+  category         String
+  sourceModule     String
+  entityRef        String
+  dataSources      Json     @default("[]")
+  dataFreshness    DateTime
+  dataQuality      Json     @default("{}")
+  modelVersion     String?
+  policyVersion    String?
+  configVersion    String?
+  observedSignals  Json     @default("{}")
+  calculatedMetrics Json    @default("{}")
+  predictedSignals Json     @default("{}")
+  simulatedOutputs Json     @default("{}")
+  contributingFactors Json @default("[]")
+  uncertainty      Json     @default("{}")
+  alternativeExplanations Json @default("[]")
+  recommendation   Json     @default("{}")
+  requiredRole     String?
+  approvalState    String   @default("none")
+  humanDecision    String?
+  finalOutcome     String?
+  createdAt        DateTime @default(now())
+
+  driver           Driver?  @relation(fields: [driverId], references: [id])
+  driverId         String?
+
+  @@index([decisionId])
+  @@index([category])
+  @@index([sourceModule])
+  @@index([approvalState])
+  @@index([createdAt])
+}
+
+model SimulationRun {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  name             String
+  seed             Int      @default(42)
+  horizonMinutes   Int
+  configSnapshot   Json     @default("{}")
+  assumptions      Json     @default("{}")
+  status           String   @default("completed")
+  metrics          Json     @default("{}")
+  results          Json     @default("{}")
+  createdAt        DateTime @default(now())
+  events           SimulationEvent[]
+
+  @@index([externalId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SimulationEvent {
+  id               String   @id @default(cuid())
+  runId            String
+  eventType        String
+  occurredAtMin    Int
+  payload          Json     @default("{}")
+
+  run              SimulationRun @relation(fields: [runId], references: [id])
+
+  @@index([runId])
+  @@index([occurredAtMin])
+}
+
+model OperationalEvent {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  eventType        String
+  severity         String   @default("medium")
+  sourceModule     String
+  correlationId    String?
+  payload          Json     @default("{}")
+  occurredAt       DateTime @default(now())
+  processed        Boolean  @default(false)
+  isSynthetic      Boolean  @default(false)
+
+  @@index([eventType])
+  @@index([correlationId])
+  @@index([occurredAt])
+  @@index([processed])
+}
+
+model EventOutbox {
+  id               String   @id @default(cuid())
+  aggregateType    String
+  aggregateId      String
+  eventType        String
+  payload          Json     @default("{}")
+  status           String   @default("pending")
+  publishedAt      DateTime?
+  createdAt        DateTime @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([aggregateType, aggregateId])
+  @@unique([aggregateType, aggregateId])
+}
+
+model ApprovalRequest {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  actionType       String
+  requestedBy      String
+  requiredRoles    Json     @default("[]")
+  status           String   @default("pending")
+  approverId       String?
+  approvedAt       DateTime?
+  idempotencyKey   String   @unique
+  expiresAt        DateTime?
+  context          Json     @default("{}")
+  createdAt        DateTime @default(now())
+
+  @@index([actionType])
+  @@index([status])
+  @@index([idempotencyKey])
+}
+
+model AuditLog {
+  id               String   @id @default(cuid())
+  actorId          String?
+  action           String
+  resourceType     String?
+  resourceId       String?
+  details          Json     @default("{}")
+  createdAt        DateTime @default(now())
+  ipAddress        String?
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model DataCorrectionRequest {
+  id               String   @id @default(cuid())
+  externalId       String   @unique
+  driverId         String?
+  tripId           String?
+  reportedBy       String
+  field            String
+  reportedValue    String
+  correctValue     String?
+  status           String   @default("pending_review")
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  createdAt        DateTime @default(now())
+
+  @@index([driverId])
+  @@index([tripId])
+  @@index([status])
+}

@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rideiq
+      POSTGRES_PASSWORD: rideiq-local-only
+      POSTGRES_DB: rideiq
+    volumes:
+      - rideiq-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rideiq -d rideiq"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rideiq:
+    build: .
+    environment:
+      NODE_ENV: production
+      MCP_TRANSPORT: streamable-http
+      PORT: 56181
+      DATABASE_URL: postgresql://rideiq:rideiq-local-only@db:5432/rideiq?schema=public
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your environment}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in your environment}
+      ALLOWED_ORIGINS: http://localhost:56181
+    ports:
+      - "127.0.0.1:56181:56181"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:56181/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  rideiq-db:
